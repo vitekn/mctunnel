@@ -1,125 +1,91 @@
-#include "udprecv.h"
-#include "libzet/global.h"
+#include <udprecv.h>
 
 #include <unistd.h>
-#include <sys/time.h>
-#include <errno.h>
-#include <endian.h>
 #include <memory.h>
-#include <cmath>
 
-UDPRecv::UDPRecv(): Thread(), streamer_(NULL)
+namespace McTunnel
 {
-	timer_ = 0;
-	log_ = ZLogger::Instance();
-	log_ -> log(ZLOG_DEBUG, 5, "UDPRecv::UDPRecv()\n");
-	pthread_mutex_init(&_s_lock, NULL);
+
+UDPRecv::UDPRecv(std::shared_ptr<ObjectPool<ChunkType>> pool)
+: _pool(pool)
+, _sockets()
+, _jobMutex()
+, _jobQueue()
+, _socketCount(0)
+, _thread([this](){this->run();})
+{
+    timer_ = 0;
 }
 
-UDPRecv::~UDPRecv()
+void UDPRecv::addToSockets(SocketStreamBundle&& bndl)
 {
-	log_ -> log(ZLOG_DEBUG, 5, "UDPRecv::~UDPRecv()\n");
-	list<ZUdpSocket*>::iterator it;
-	for(it=sockets_.begin(); it!=sockets_.end(); it++)
-	{
-		(*it) -> close();
-		delete (*it);
-	}
-	log_ -> log(ZLOG_DEBUG, 5, "    finished\n");
+    _sockets.push_back(std::move(bndl));
+    _socketCount.store(_sockets.size());
+
 }
 
-bool UDPRecv::addSocket(u_int32_t ip, u_int16_t port)
+std::shared_ptr<DataStream> UDPRecv::addMulticast(const Networking::IpEndpoint& endpoint)
 {
-	//log_ -> log(ZLOG_DEBUG, 5, "UDPRecv::addSocket(ip = %s, port = %d)\n", ipaddrToStr(ip).c_str(), port);
-	ZUdpSocket *ns(new ZUdpSocket());
-	ns -> setReuse(true);
-	ns -> setBlocking(false);
-	ns -> setRecieveTimeOut(100);
+    try {
+        SocketStreamBundle bndl{std::make_unique<Networking::UDPSocket>(), std::make_shared<DataStream>(PoolAllocator<ChunkType>(_pool))};
+        UdpSocket& ns = *(bndl.first.get());
+        if (ns.setReuse(true) == Networking::SocketError::ERROR
+            || ns.setBlocking(false) == Networking::SocketError::ERROR
+            || ns.setRecieveTimeOut(100) == Networking::SocketError::ERROR) {
+            return std::shared_ptr<DataStream>();
+        }
 
-	if(ns -> bind(ip, port))
-	{ /*log_ -> log(ZLOG_DEBUG, 5, "    binded %x, [%s]\n", ip, strerror(errno));*/ }
-	else
-	{ /*log_ -> log(ZLOG_WARNING, 2, "    not binded [%s]\n", strerror(errno));*/ }
+        if(ns.bind(ip, port) == Networking::SocketError::ERROR) {
+            return std::shared_ptr<DataStream>();
+            /*log_ -> log(ZLOG_DEBUG, 5, "    binded %x, [%s]\n", ip, strerror(errno));*/
+        }
 
-	if(ns -> addMembership(ip))
-	{ /*log_ -> log(ZLOG_DEBUG, 5, "    joined [%s]\n", strerror(errno));*/ }
-	else
-	{ /*log_ -> log(ZLOG_WARNING, 2, "    not joined [%s]\n", strerror(errno));*/ }
-	pthread_mutex_lock(&_s_lock);
-	sockets_.push_back(ns);
-	pthread_mutex_unlock(&_s_lock);
+        if(ns.addMembership(ip)  == Networking::SocketError::ERROR) {
+            /*log_ -> log(ZLOG_DEBUG, 5, "    joined [%s]\n", strerror(errno));*/
+            return std::shared_ptr<DataStream>();
+        }
 
-	//log_ -> log(ZLOG_DEBUG, 5, "    finished %p, [%s]\n", ns, strerror(errno));
-	return true;
+        auto res = bndl.second;
+        _jobQueue.postJob([this, bndl](){this->addToSockets(bndl);});
+        //log_ -> log(ZLOG_DEBUG, 5, "    finished %p, [%s]\n", ns, strerror(errno));
+        return res;
+    } catch (std::bad_alloc&) {
+        return std::shared_ptr<DataStream>();
+    }
+
 }
 
 int UDPRecv::getSocketsCount()
 {
-	//log_ -> log(ZLOG_DEBUG, 5, "UDPRecv::getSocketsCount()\n");
-	pthread_mutex_lock(&_s_lock);
-	int c = sockets_.size();
-	pthread_mutex_unlock(&_s_lock);
-	//log_ -> log(ZLOG_DEBUG, 5, "    finished %i\n", c);
-	return c;
-}
-
-void UDPRecv::setStreamer(UDPTCPStreamer* st)
-{
-	log_ -> log(ZLOG_DEBUG, 5, "UDPRecv::setStreamer()\n");
-	streamer_ = st;
+    return _socketsCount.load();
 }
 
 void UDPRecv::run()
 {
-	log_ -> log(ZLOG_DEBUG, 5, "UDPRecv::run():\n");
+    _jobQueue.dispatchJob();
 
-	char *buf = NULL;			//[64*1024];
-	buf = new char[MAX_UDP_SIZE + sizeof(UdpPacket)];
-	log_ -> log(ZLOG_DEBUG, 5, "    after creating buf = %p, [thread = %p]\n", buf, this);
-	UdpPacket* u = (UdpPacket*)buf;
-	buf   +=   sizeof(UdpPacket);
-	list<ZUdpSocket*>::iterator it;
+    bool idle = true;
 
-	while(!is_finish)
-	{
-		bool idle = true;
-		for(it=sockets_.begin(); it!=sockets_.end(); it++)
-		{
-			int res = (*it) -> readData(buf, MAX_UDP_SIZE);//,(in_addr_t*)&ip);
-			//log_ -> log(ZLOG_DEBUG, 2, "UDPRecv::run() read data res = %i\n", res);
-			if(res > 0)
-			{
-				if(res > 1500)
-					log_ -> log(ZLOG_WARNING, 2, "UDPRecv::run()    greater 1500 (MTU) res %i \n", res);
-				if(u)		//data
-				{
-					u -> ip = htonl((*it) -> getBindedIp());
-					u -> port = htons((*it) -> getBindedPort());
-					u -> size = htons(res);
-					u -> time_stamp = htobe64((getTime() - timer_));
-				}
-				if(streamer_)
-				{
-					if(!streamer_ -> writePacket(u, res))
-					{
-						log_ -> log(ZLOG_WARNING, 2, "UDPRecv::run()     buffer overflow dropping packet %x, size %i [%s]\n", ntohl(u -> ip), res, strerror(errno));
-						sleep(1);
-					}
-					else
-						log_ -> log(ZLOG_DEBUG, 2, "UDPRecv::run()    read ip %x data res %i\n", (*it) -> getBindedIp(), res);
-				}
-				idle = false;
-			}
-			else if(errno != EAGAIN)
-			{
-				log_ -> log(ZLOG_WARNING, 5, "UDPRecv::run()    errno != EAGAIN: [%s]\n", strerror(errno));
-				idle = false;
-			}
-		}
-		if(idle) usleep(1000);
-	}
+    for (auto& bndl: _sockets) {
+        UdpPacket udpPacket;
+        Networking::SocketError res = readFromSocket(*(bndl.first.get()), udpPacket);
+        if (res == Networking::SocketError::SUCCESS) {
+            if (bndl.second->write(udpPacket.getData().data(), udpPacket->getSize())) {
+//                log_->log(ZLOG_DEBUG, 2, "UDPRecv::run()    read ip %x data res %i\n", (*it)->getBindedIp(),
+  //                        res);
+            } else {
+    //            log_->log(ZLOG_WARNING, 2,
+      //                    "UDPRecv::run()     buffer overflow dropping packet %x, size %i [%s]\n", ntohl(u->ip),
+        //                  res, strerror(errno));
+            }
+            idle = false;
+        } else if (res == Networking::SocketError::ERROR) {
+//            log_->log(ZLOG_WARNING, 5, "UDPRecv::run()    errno != EAGAIN: [%s]\n", strerror(errno));
+        }
+    }
 
-	if(buf)
-	{ buf -= sizeof(UdpPacket); delete[] buf; u = NULL; buf = NULL; }
-	log_ -> log(ZLOG_DEBUG, 5, "    UDPRecv::run finished\n");
+    if(idle) {
+        std::this_thread::sleep_for(1ms);
+    }
+}
 }

@@ -9,34 +9,47 @@
 #include "libzet/exthreads.h"
 #include "libzet/ztcpsocket.h"
 #include "libzet/logger.h"
-#include "libzet/lbconfig.h"
-#include "udptcpstreamer.h"
+#include "configuration.h"
+#include "udprecv.h"
+#include "tcpsocket.h"
+#include "jobqueue.h"
+#include "rjthread.h"
 
 using std::map;
 
-typedef map<u_int32_t, ZTcpSocket*> SockMap;
+namespace McTunnel{
 
-/// Kлacc omnpaвku nakemoв no TCP
-class TcpMCOutput: public Thread
+class TcpMCOutput
 {
+    struct DataChannel
+    {
+        std::shared_ptr<UDPRecv::DataStream> stream;
+        std::unique_ptr<Networking::TcpSocket> socket;
+        UDPRecv::DataStream::ChunkPtr chunkInUse;
+        Networking::IpEndpoint mcGroup;
+    };
+
+
 public:
-	TcpMCOutput(UDPTCPStreamer*);
-	virtual ~TcpMCOutput() {}
+    using ConnectionLostClb = std::function<void(const std::shared_ptr<UDPRecv::DataStream>&, const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>&)>;
+    TcpMCOutput(std::shared_ptr<Configuration> conf, const ConnectionLostClb& clclb);
 
-protected:
-	virtual void run();		///< coздaнue, omkpыmue cokemoв u omnpaвka no TCP
-
-private:
-	void createTcpSocket(u_int32_t);		///< coздaнue TCP-cokema
-	bool connect2Interface(u_int32_t);		///< noдcoeдuнeнue k TCP-uнmepфeйcy
-	void deleteTcpSockets();				///< зakpыmue u yнuчmoжeнue TCP-cokemoв
+    bool addChannelForGroup(const std::shared_ptr<UDPRecv::DataStream>& ds, const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>& group);
 
 private:
-	SockMap sockets_map_;
-	SockMap::iterator end_, finded_iterator_;
-	UDPTCPStreamer* streamer_;
-	ZLogger* log_;
-	Configuration::LibConf* conf_;
+    void run();
+
+    void createTcpSocketFor(std::unique_ptr<DataChannel> dch);
+
+    bool connect2Interface(u_int32_t);
+    void deleteTcpSockets();
+
+private:
+    std::shared_ptr<Configuration> _conf;
+    std::vector<std::unique_ptr<DataChannel>> _dataStreamToSocket;
+    JobQueue _jobQueue;
+    ConnectionLostClb _connectionLostCb;
+    RjThread _dataThread;
 };
-
+}
 #endif

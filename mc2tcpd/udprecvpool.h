@@ -5,21 +5,29 @@
 #include "libzet/lbconfig.h"
 #include "udprecv.h"
 #include "udptcpstreamer.h"
+#include "configuration.h"
+#include "objectpool.h"
+#include "ipaddress.h"
 
-class UDPRecvPool: public ThreadPool<UDPRecv>
+#include <vector>
+#include <memory>
+namespace McTunnel{
+
+    class UDPRecvPool
 {
 public:
-	UDPRecvPool(UDPTCPStreamer*);
-	virtual ~UDPRecvPool();
+    using OnAddGroupCb = std::function<void(std::shared_ptr<UDPRecv::DataStream>, const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>&)>;
+
+    UDPRecvPool(std::shared_ptr<Configuration> conf);
+
+    bool addGroups(const OnAddGroupCb& addCb);
 
 private:
-	bool addGroup(in_addr_t, short);
-	bool addGroup();		///< добавление IP UDP-nomokoв, cчumaнныe uз фaйлa koнфuгypaцuu
+//    ZLogger *_logger;
+    std::shared_ptr<Configuration> _conf;
+    std::vector<std::unique_ptr<UDPRecv>> _recvThreads;
+    std::shared_ptr<ObjectPool<UDPRecv::ChunkType>> _bufferPool;
 
-private:
-	ZLogger *_logger;
-	Configuration::LibConf* conf_;
-	int _max_sockets;		///< кoлuчecmвo cokemoв нa nomok
 };
-
+}
 #endif
