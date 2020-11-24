@@ -14,7 +14,7 @@ class Configuration
 public:
     Configuration (): _groupsToTcp(), _recvThreads(0), _bufferSize(0){}
 
-    bool read(istream& stream)
+    bool read(std::istream& stream)
     {
         bool res=true;
         while (!stream.eof() && res) {
@@ -32,12 +32,12 @@ public:
                 res=readValues(GROUP_TO_TCP, line, &eps[0], 2);
             }
         }
-        return res && _recvThreads > 0 && _bufferSize > 0 && _groupsToTcp.size() > 0;
+        return res && _recvThreads > 0 && _bufferSize > 0 && !_groupsToTcp.empty();
     }
 
-    size_t bufferSize() const { return _bufferSize;}
-    size_t receiveThreads() const { return _recvThreads }
-    const std::vector<std::pair<Networking::IpEndpoint, Networking::IpEndpoint>>& mcGroupsToTcp() const { return _groupsToTcp;}
+    [[nodiscard]] size_t bufferSize() const { return _bufferSize;}
+    [[nodiscard]] size_t receiveThreads() const { return _recvThreads; }
+    [[nodiscard]] const std::vector<std::pair<Networking::IpEndpoint, Networking::IpEndpoint>>& mcGroupsToTcp() const { return _groupsToTcp;}
 
 private:
     template<class T>
@@ -46,9 +46,9 @@ private:
         std::string::size_type pos = line.find_first_not_of('=',name.size());
         if (pos != std::string::npos) {
             std::istringstream iss(line.substr(pos));
-            size_t ct=0;
+            size_t ct = 0;
             while (ct < count) {
-                iss >> *(T + ct);
+                iss >> (*(result + ct));
                 ++ct;
                 if (!iss.eof() || iss.fail()) {
                     return false;
@@ -58,7 +58,7 @@ private:
         return true;
     }
 
-    void removeSpacesAndComments(std::string& str)
+    static void removeSpacesAndComments(std::string& str)
     {
         int nl=0;
         for (int i=0; i<str.size() && str[i]!='#'; ++i){
@@ -74,10 +74,10 @@ private:
     std::vector<std::pair<Networking::IpEndpoint, Networking::IpEndpoint>> _groupsToTcp;
     size_t _recvThreads;
     size_t _bufferSize;
-    constexpr static std::string BUFFER_SIZE = "buffer_size";
-    constexpr static std::string RECEIVE_THREADS = "receive_threads_count";
-    constexpr static std::string GROUP_TO_TCP = "group_to_tcp";
-}
+    constexpr static const char BUFFER_SIZE[] = "buffer_size";
+    constexpr static const char RECEIVE_THREADS[] = "receive_threads_count";
+    constexpr static const char GROUP_TO_TCP[] = "group_to_tcp";
+};
 
 }
 

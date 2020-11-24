@@ -1,11 +1,8 @@
-#ifndef UDPTCPSTREAMER_H
+/*#ifndef UDPTCPSTREAMER_H
 #define UDPTCPSTREAMER_H
 
 #include <sys/types.h>
 
-#include "libzet/circbuffer.h"
-#include "libzet/logger.h"
-#include "libzet/lbconfig.h"
 #include "udppacket.h"
 #include "circbuffer.h"
 #include <mutex>
@@ -25,9 +22,8 @@ private:
     void fromNet(const UdpPacket&, UdpPacket&);
 
 private:
-    ZLogger* log_;
-    Configuration::LibConf* conf_;
     Buffer _cbuf;
 };
 }
 #endif
+*/

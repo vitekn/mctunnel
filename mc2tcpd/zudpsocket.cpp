@@ -5,15 +5,16 @@ namespace Networking {
 
 namespace PosixImplementation {
 
-PosixUdpSocket::PosixUdpSocket(): PosixSocket(SocketType::UDP_SOCKET)
+PosixUdpSocket::PosixUdpSocket()  noexcept
+: PosixSocket(::socket(AF_INET, SOCK_DGRAM, 0), IpEndpoint())
 {}
 
-PosixUdpSocket::PosixUdpSocket(PosixUdpSocket &&other)
+PosixUdpSocket::PosixUdpSocket(PosixUdpSocket &&other) noexcept
 : PosixSocket(std::move(other))
 {}
 
 std::tuple<SocketError, size_t, IpAddress>
-PosixUdpSocket::readDataFrom(char* buf, size_t size, uint32_t flags = MsgFlags::MSG_WAITALL)
+PosixUdpSocket::readDataFrom(char* buf, size_t size, FlagUnion flags) noexcept
 {
     IpAddress::Family family = PosixSocket::ipEndpoint().ipAddress().family();
     IpAddress ip;
@@ -28,7 +29,7 @@ PosixUdpSocket::readDataFrom(char* buf, size_t size, uint32_t flags = MsgFlags::
         ret = ::recvfrom(PosixSocket::nativeSocketDescriptor(),
                              buf,
                              size,
-                             flags,
+                             flags.value(),
                              reinterpret_cast<sockaddr*>(&from), &fromlen);
         if (ret >= 0) {
             ip = IpAddress(IpAddress::IpV4{ntohl(from.sin_addr.s_addr)});
@@ -40,7 +41,7 @@ PosixUdpSocket::readDataFrom(char* buf, size_t size, uint32_t flags = MsgFlags::
         ret = ::recvfrom(PosixSocket::nativeSocketDescriptor(),
                              buf,
                              size,
-                             flags,
+                             flags.value(),
                              reinterpret_cast<sockaddr*>(&from), &fromlen);
         if (ret >= 0) {
             ip = IpAddress(IpAddress::IpV6{ntohl(from.sin6_addr.s6_addr32[0]),
@@ -55,7 +56,7 @@ PosixUdpSocket::readDataFrom(char* buf, size_t size, uint32_t flags = MsgFlags::
         err = SocketError::SUCCESS;
         readed = ret;
     } else {
-        if (res == EAGAIN) {
+        if (ret == EAGAIN) {
             err = SocketError::TRY_AGAIN;
         } else {
             err = SocketError::ERROR;
@@ -65,7 +66,7 @@ PosixUdpSocket::readDataFrom(char* buf, size_t size, uint32_t flags = MsgFlags::
     return std::make_tuple(err, readed, ip);
 }
 
-std::tuple<SocketError, size_t> PosixUdpSocket::writeDataTo(char* buf, size_t size, const IpAddress& ip, uint32_t flags = 0)
+std::tuple<SocketError, size_t> PosixUdpSocket::writeDataTo(const char* buf, size_t size, const IpAddress& ip, FlagUnion flags) noexcept
 {
     SocketError err = SocketError::ERROR;
     size_t written = 0;
@@ -78,10 +79,10 @@ std::tuple<SocketError, size_t> PosixUdpSocket::writeDataTo(char* buf, size_t si
 
         memset(&from, 0, sizeof(from));
         from.sin_addr.s_addr = htonl(ip.ipv4().value);
-        from.sin_port = htons(PosixSocket::ipEndpoint().port());
+        from.sin_port = htons(PosixSocket::ipEndpoint().port().value());
         from.sin_family = AF_INET;
 
-        int ret = sendto(PosixSocket::nativeSocketDescriptor(), buf, size, flags, (sockaddr * ) & from, fromlen);
+        int ret = ::sendto(PosixSocket::nativeSocketDescriptor(), buf, size, flags.value(), (sockaddr * ) & from, fromlen);
         if (ret>=0){
             written = ret;
             err = SocketError::SUCCESS;
@@ -97,10 +98,10 @@ std::tuple<SocketError, size_t> PosixUdpSocket::writeDataTo(char* buf, size_t si
         from.sin6_addr.s6_addr32[1] = htonl(ip.ipv6().value3);
         from.sin6_addr.s6_addr32[2] = htonl(ip.ipv6().value2);
         from.sin6_addr.s6_addr32[3] = htonl(ip.ipv6().value1);
-        from.sin6_port = htons(PosixSocket::ipEndpoint().port());
+        from.sin6_port = htons(PosixSocket::ipEndpoint().port().value());
         from.sin6_family = AF_INET;
 
-        int ret = sendto(PosixSocket::nativeSocketDescriptor(), buf, size, flags, (sockaddr * ) & from, fromlen);
+        int ret = ::sendto(PosixSocket::nativeSocketDescriptor(), buf, size, flags.value(), (sockaddr * ) & from, fromlen);
         if (ret>=0){
             written = ret;
             err = SocketError::SUCCESS;
@@ -110,10 +111,10 @@ std::tuple<SocketError, size_t> PosixUdpSocket::writeDataTo(char* buf, size_t si
     return std::make_tuple(err, written);
 }
 
-SocketError PosixUdpSocket::addMembership(const IpAddress& group)
+SocketError PosixUdpSocket::addMembership(const IpAddress& group) noexcept
 {
     IpAddress::Family family = PosixSocket::ipEndpoint().ipAddress().family();
-    if (family == IpAddress::Family::UNKNOWN || family != ip.family()) return err;
+    if (family == IpAddress::Family::UNKNOWN || family != group.family()) return SocketError::ERROR;
 
     if (family == IpAddress::Family::IPV4) {
         ip_mreq gr;
@@ -135,11 +136,11 @@ SocketError PosixUdpSocket::addMembership(const IpAddress& group)
            SocketError::SUCCESS;
 }
 
-SocketError PosixUdpSocket::setMulticastTtl(uint32_t ttl)
+SocketError PosixUdpSocket::setMulticastTtl(uint32_t ttl) noexcept
 {
 
     IpAddress::Family family = PosixSocket::ipEndpoint().ipAddress().family();
-    if (family == IpAddress::Family::UNKNOWN) return err;
+    if (family == IpAddress::Family::UNKNOWN) return SocketError::ERROR;
 
     if (family == IpAddress::Family::IPV4) {
         return (setsockopt(PosixSocket::nativeSocketDescriptor(), IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl)) >= 0)

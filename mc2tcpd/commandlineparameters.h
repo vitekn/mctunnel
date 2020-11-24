@@ -9,7 +9,7 @@ class CommandLineParameters
 public:
     CommandLineParameters(int argc, char** argv):_parameters(){
         for (int i=0; i<argc; ++i) {
-            _parameters.push_back(argv[i]);
+            _parameters.emplace_back(argv[i]);
         }
     }
 
@@ -17,7 +17,7 @@ public:
     {
         std::optional<std::string> res;
         auto it = find(_parameters.begin(), _parameters.end(), CONF_FILE_NAME_PARARM);
-        if (std::distance(it, _parameters.end) > 1) {
+        if (std::distance(it, _parameters.end()) > 1) {
             ++it;
             res = *it;
         }
@@ -26,7 +26,7 @@ public:
 
 private:
     std::vector<std::string> _parameters;
-    constexpr static std::string CONF_FILE_NAME_PARARM = "--config";
+    constexpr static char CONF_FILE_NAME_PARARM[] = "--config";
 };
 
 #endif //MC2TCPD_COMMANDLINEPARAMETERS_H

@@ -9,7 +9,7 @@
 #include "tcpmcoutput.h"
 #include "commandlineparameters.h"
 #include <fstream>
-
+#include "udprecv.h"
 std::atomic_bool running = true;
 namespace
 {
@@ -18,6 +18,7 @@ void signal_handler(int sig)
     running = false;
 }
 }
+using namespace std::chrono_literals;
 
 int main(int argc, char** argv)
 {
@@ -41,11 +42,11 @@ int main(int argc, char** argv)
     auto reconnectionJobs = std::make_shared<JobQueue>();
 
     McTunnel::UDPRecvPool receivers(configuration);
-    auto output
-        = std::make_shared<McTunnel::TcpMCOutput>(
-                configuration,
-                [output, reconnectionJobs](const std::shared_ptr<UDPRecv::DataStream>& ds,
-                                           const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>& group)
+    std::shared_ptr<McTunnel::TcpMCOutput> output
+        = std::make_shared<McTunnel::TcpMCOutput>(configuration);
+    output->setConnectionLostClb(
+                [output, reconnectionJobs](const std::shared_ptr<McTunnel::UDPRecv::DataStream>& ds,
+                                           const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>& group) mutable
                 {
                    reconnectionJobs->postJob(
                        [ds,group,output]()
@@ -56,7 +57,7 @@ int main(int argc, char** argv)
                        });
                 });
 
-    receivers.addGroups([](const std::shared_ptr<UDPRecv::DataStream>& ds,
+    receivers.addGroups([output](const std::shared_ptr<McTunnel::UDPRecv::DataStream>& ds,
                            const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>& group)
                         {
                             output->addChannelForGroup(ds, group);

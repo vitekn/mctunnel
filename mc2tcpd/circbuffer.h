@@ -1,3 +1,5 @@
+
+/*
 #ifndef MC2TCPD_CIRCBUFFER_H
 #define MC2TCPD_CIRCBUFFER_H
 #include <utility>
@@ -137,5 +139,5 @@ constexpr size_t CircBuffer<N>::maxSize() const
 }
 
 
-
 #endif //MC2TCPD_CIRCBUFFER_H
+*/

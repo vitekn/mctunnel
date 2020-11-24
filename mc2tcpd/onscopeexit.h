@@ -5,12 +5,9 @@
 class OnScopeExit
 {
 public:
-    OnScopeExit(std::function<void(*)()>&& functor)
-    : f(std::move(functor))
-    {}
 
-    OnScopeExit(const std::function<void(*)()>& functor)
-    : f(functor)
+    explicit OnScopeExit(std::function<void()> functor)
+    : f(std::move(functor))
     {}
 
     ~OnScopeExit()
@@ -23,7 +20,7 @@ public:
     OnScopeExit& operator=(const OnScopeExit&) = delete;
 
 private:
-    std::function<void(*)()> f;
+    std::function<void()> f;
 };
 
 

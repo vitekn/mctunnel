@@ -1,8 +1,6 @@
 #ifndef UDPRECVPOOL_H
 #define UDPRECVPOOL_H
 
-#include "libzet/threadpool.h"
-#include "libzet/lbconfig.h"
 #include "udprecv.h"
 #include "udptcpstreamer.h"
 #include "configuration.h"

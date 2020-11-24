@@ -11,20 +11,20 @@ namespace PosixImplementation {
 class PosixTcpSocket: public PosixSocket
 {
 public:
-    PosixTcpSocket();
-    PosixTcpSocket(PosixTcpSocket&& other);
-    PosixTcpSocket(int existing, IpEndpoint&& ipEndpoint);
-    virtual ~PosixTcpSocket() {}
+    PosixTcpSocket() noexcept;
+    PosixTcpSocket(PosixTcpSocket&& other) noexcept;
+    PosixTcpSocket(int existing, const IpEndpoint& ipEndpoint) noexcept;
+    ~PosixTcpSocket() override = default;
 
-    SocketError listen();
-    std::tuple<SocketError, std::unique_ptr<PosixTcpSocket> > accept();
-    SocketError connect(const IpEndpoint& ipEndpoint);
+    SocketError listen() noexcept;
+    std::tuple<SocketError, std::unique_ptr<PosixTcpSocket> > accept() noexcept;
+    SocketError connect(const IpEndpoint& ipEndpoint) noexcept;
 
     SocketError setNoDelay(bool value);
 
-    bool isConnected() const { return _connectedEp.ipAddress().family != IpAddress::Family::UNKNOWN; }
+    [[nodiscard]] bool isConnected() const { return _connectedEp.ipAddress().family() != IpAddress::Family::UNKNOWN; }
 
-    const IpEndpoint& connectedEndpoint() const {return _connectedEp;}
+    [[nodiscard]] const IpEndpoint& connectedEndpoint() const {return _connectedEp;}
 
 private:
     IpEndpoint _connectedEp;

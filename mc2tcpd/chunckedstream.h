@@ -1,10 +1,11 @@
-_#ifndef MC2TCPD_CHUNCKEDSTREAM_H
+#ifndef MC2TCPD_CHUNCKEDSTREAM_H
 #define MC2TCPD_CHUNCKEDSTREAM_H
 #include <array>
 #include <memory>
 #include <deque>
 #include <mutex>
 #include <vector>
+#include <cstring>
 
 //TODO deq mutex
 class AsArray {
@@ -18,7 +19,7 @@ public:
 template <size_t SIZE>
 struct Chunk
 {
-    constexpr const int MAX_SIZE = SIZE;
+    constexpr static const int MAX_SIZE = SIZE;
     Chunk():size(0), readPos(0){}
 
     size_t size;
@@ -41,10 +42,11 @@ struct NoMutex{
 template <class CHUNK, class Allocator = std::allocator<CHUNK>, class MUTEX = NoMutex>
 class ChunkedStream {
     struct Deleter{
-        Deleter(Allocator* alloc) noexcept
+        Deleter():_alloc(nullptr){}
+        explicit Deleter(Allocator* alloc) noexcept
                 :_alloc(alloc)
         {}
-        void operator()(Chunk *ptr)
+        void operator()(CHUNK *ptr)
         {
             std::allocator_traits<Allocator>::destroy(*_alloc, ptr);
             std::allocator_traits<Allocator>::deallocate(*_alloc, ptr, 1);
@@ -57,7 +59,7 @@ public:
     using ChunkPtr = std::unique_ptr<CHUNK, Deleter>;
 
 
-    ChunkedStream(const Allocator& allocator=Allocator())
+    explicit ChunkedStream(const Allocator& allocator=Allocator())
     : _queue()
     , _allocator(allocator)
     , _currentChunk(createChunk())
@@ -76,19 +78,19 @@ public:
         if (_queue.empty()) {
             value = ChunkPtr();
         } else {
-            value = _queue.front();
+            value = std::move(_queue.front());
             _queue.pop_front();
         }
         return *this;
     }
 
-    void revertChunk(ChunkPtr ptr){
+    void revertChunk(ChunkPtr&& ptr){
         std::lock_guard<MUTEX> lock(_mutex);
-        _queue.push_front(ptr);
+        _queue.emplace_front(std::move(ptr));
     }
 
-    size_t size() const { return _size; }
-    bool empty() const { return size == 0;}
+    [[nodiscard]] size_t size() const { return _size; }
+    [[nodiscard]] bool empty() const { return _size == 0;}
 
     void flush()
     {
@@ -106,20 +108,20 @@ public:
         std::vector<ChunkPtr> chunksToAdd;
 
         while (size != 0) {
-            size_t sz = min(size, CHUNK::MAX_SIZE - _currentChunk->size);
-            memcpy(_currentChunk->buf.data()+_currentChunk->size, buf);
+            size_t sz = std::min(size, CHUNK::MAX_SIZE - _currentChunk->size);
+            std::memcpy(_currentChunk->buf.data()+_currentChunk->size, buf, sz);
             size -= sz;
             buf += sz;
             _currentChunk->size += sz;
             if (_currentChunk->size == CHUNK::MAX_SIZE) {
                 try {
                     ChunkPtr newChunk = createChunk();
-                    chunksToAdd.push_back(_currentChunk);
-                    _currentChunk = newChunk;
+                    chunksToAdd.emplace_back(std::move(_currentChunk));
+                    _currentChunk = std::move(newChunk);
 
                 } catch (const std::bad_alloc&) {
                     if (!chunksToAdd.empty()) {
-                        _currentChunk = chunksToAdd.front();
+                        _currentChunk = std::move(chunksToAdd.front());
                     }
                     _currentChunk->size = chunkSize;
                     return false;
@@ -165,9 +167,9 @@ private:
         return ChunkPtr(constructChunk(), Deleter(&_allocator));
     }
 
-    Chunk* constructChunk()
+    CHUNK* constructChunk()
     {
-        Chunk* ch = std::allocator_traits<Allocator>::allocate(_allocator, 1U);
+        CHUNK* ch = std::allocator_traits<Allocator>::allocate(_allocator, 1U);
         std::allocator_traits<Allocator>::construct(_allocator, ch);
         return ch;
     }

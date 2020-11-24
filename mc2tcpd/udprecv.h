@@ -3,9 +3,7 @@
 
 #include <vector>
 
-#include "libzet/exthreads.h"
 #include <udpsocket.h>
-#include "libzet/logger.h"
 #include "chunckedstream.h"
 #include "udppacket.h"
 #include <memory>
@@ -27,12 +25,12 @@ private:
     using SocketStreamBundle = std::pair<std::unique_ptr<Networking::UdpSocket>, std::shared_ptr<DataStream>>;
 
 public:
-    UDPRecv(std::shared_ptr<ObjectPool<ChunkType>> pool) noexcept;
+    explicit UDPRecv(std::shared_ptr<ObjectPool<ChunkType>> pool) noexcept;
     int getSocketsCount() noexcept;
     std::shared_ptr<DataStream> addMulticast(const Networking::IpEndpoint& endpoint) noexcept;
 
 private:
-    void addToSockets(SocketStreamBundle&& bndl);
+    void addToSockets(std::shared_ptr<SocketStreamBundle> bndl);
     void dispatchJob();
     void run();
 

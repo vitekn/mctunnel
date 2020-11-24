@@ -9,14 +9,14 @@ namespace PosixImplementation {
 class PosixUdpSocket: public PosixSocket
 {
 public:
-    PosixUdpSocket();
-    PosixUdpSocket(PosixUdpSocket&& other);
-    virtual ~PosixUdpSocket(){}
+    PosixUdpSocket() noexcept;
+    PosixUdpSocket(PosixUdpSocket&& other) noexcept;
+    ~PosixUdpSocket() override = default;
 
-    std::tuple<SocketError, size_t, IpAddress> readDataFrom(char* buf, size_t size, uint32_t flags = MsgFlags::MSG_WAITALL);
-    std::tuple<SocketError, size_t> writeDataTo(char* buf, size_t size, const IpAddress& ip, uint32_t flags = 0);
-    SocketError addMembership(const IpAddress& group);
-    SocketError setMulticastTtl(uint32_t ttl);
+    std::tuple<SocketError, size_t, IpAddress> readDataFrom(char* buf, size_t size, FlagUnion flags = FlagUnion{MsgFlags::WaitAll}) noexcept;
+    std::tuple<SocketError, size_t> writeDataTo(const char* buf, size_t size, const IpAddress& ip, FlagUnion flags = FlagUnion()) noexcept;
+    SocketError addMembership(const IpAddress& group) noexcept;
+    SocketError setMulticastTtl(uint32_t ttl) noexcept;
 
 };
 }

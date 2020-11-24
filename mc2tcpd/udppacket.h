@@ -20,7 +20,7 @@ struct UdpHeader{
     {}
 
     // TODO: IPV6
-    constexpr size_t headerSize() const {return 16U;}
+    constexpr static size_t headerSize() {return 16U;}
     u_int32_t ip;
     u_int16_t port;
     u_int16_t size;
@@ -31,28 +31,31 @@ class UdpPacket
 {
 public:
     static const int MAX_DATA_SIZE = 64 * 1024;
-    using BufferType = std::array<uint8_t, MAX_DATA_SIZE + UdpHeader::headerSize()>;
+    using BufferType = std::array<char, MAX_DATA_SIZE + UdpHeader::headerSize()>;
 
-    UdpPacket():size(0){}
+    UdpPacket() noexcept
+    : size(0)
+    , buf()
+    {}
 
     void setHeader(const UdpHeader& header){
         size = ((size_t)header.size) + UdpHeader::headerSize();
-        *(reinterpret_cast<u_int32_t*>(&(buf[0]))) = htonl(socket->getBindedIp());
-        *(reinterpret_cast<u_int16_t*>(&(buf[4]))) = htons(socket->getBindedPort());
-        *(reinterpret_cast<u_int16_t*>(&(buf[6]))) = htons(res);
-        *(reinterpret_cast<u_int64_t*>(&(buf[8]))) = htobe64((getTime() - timer_));
+        *(reinterpret_cast<u_int32_t*>(&(buf[0]))) = htonl(header.ip);
+        *(reinterpret_cast<u_int16_t*>(&(buf[4]))) = htons(header.port);
+        *(reinterpret_cast<u_int16_t*>(&(buf[6]))) = htons(header.size);
+        *(reinterpret_cast<u_int64_t*>(&(buf[8]))) = htobe64(header.time_stamp);
     };
 
-    const BufferType& getData() const { return buf; }
+    [[nodiscard]] const BufferType& getData() const { return buf; }
 
-    u_int8_t *getUdpPayloadPtr() { return buf.data()+UdpHeader::headerSize(); }
-    const u_int8_t *getUdpPayloadPtr() const { return buf.data()+UdpHeader::headerSize(); }
+    [[nodiscard]] char* getUdpPayloadPtr() { return buf.data()+UdpHeader::headerSize(); }
+    [[nodiscard]] const char* getUdpPayloadPtr() const { return buf.data()+UdpHeader::headerSize(); }
 
-    size_t getSize() const {return size;}
+    [[nodiscard]] size_t getSize() const {return size;}
 
 private:
     size_t size;
-    std::array<uint8_t, MAX_DATA_SIZE + UdpHeader::headerSize()> buf;
+    std::array<char, MAX_DATA_SIZE + UdpHeader::headerSize()> buf;
 };
 
 Networking::SocketError readFromSocket(Networking::Socket& socket, UdpPacket& packet)
@@ -63,8 +66,8 @@ Networking::SocketError readFromSocket(Networking::Socket& socket, UdpPacket& pa
     if(err != Networking::SocketError::SUCCESS) {
         return err;
     }
-
-    packet.setHeader(UdpHeader(socket.ipEndpoint(), size, getTime()));
+    auto tm = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch());
+    packet.setHeader(UdpHeader(socket.ipEndpoint(), size, tm.count()));
 
     if(size > 1500) {
 //        log_->log(ZLOG_WARNING, 2, "UDPRecv::run()    greater 1500 (MTU) res %i \n", res);

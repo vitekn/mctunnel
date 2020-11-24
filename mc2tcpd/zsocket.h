@@ -7,6 +7,7 @@
 #include <socketenums.h>
 #include <ipaddress.h>
 #include <tuple>
+#include <chrono>
 
 namespace Networking
 {
@@ -17,23 +18,42 @@ enum class MsgFlags: uint32_t {
     WaitAll = MSG_WAITALL,
     NoSignal = MSG_NOSIGNAL,
 };
+class FlagUnion
+{
+public:
+    FlagUnion():_value(0){}
+
+    FlagUnion(std::initializer_list<MsgFlags> flags)
+            :_value(0)
+    {
+        for(auto f: flags){
+            _value |= static_cast<uint32_t>(f);
+        }
+    }
+    [[nodiscard]] uint32_t value() const { return _value;}
+private:
+    uint32_t _value;
+};
+
 
 class PosixSocket
 {
 public:
 
-    explicit PosixSocket(int existing, IpEndpoint&& ipEndpoint) noexcept;
-    explicit PosixSocket(SocketType type) noexcept;
+    PosixSocket(int existing, const IpEndpoint& ipEndpoint) noexcept;
     PosixSocket(PosixSocket&& other) noexcept;
-
+    PosixSocket(const PosixSocket&) = delete;
     virtual ~PosixSocket() { close(); }
+
+    PosixSocket& operator=(const PosixSocket&) = delete;
+
 
     SocketError bind(const IpEndpoint& ipEndpoint) noexcept;
 
     void close() noexcept;
 
-    SocketError setReceiveTimeOut(int millisec) noexcept;
-    SocketError setTransmitTimeOut(int millisec) noexcept;
+    SocketError setReceiveTimeOut(std::chrono::milliseconds milliseconds) noexcept;
+    SocketError setTransmitTimeOut(std::chrono::milliseconds milliseconds) noexcept;
     SocketError setReuse(bool reuse) noexcept;
     SocketError setBlocking(bool block) noexcept;
     SocketError setReceiveMinSize(size_t size) noexcept;
@@ -41,21 +61,17 @@ public:
     SocketError setRcvBufSize(size_t size) noexcept;
     SocketError setNoCheck(int checkSum) noexcept;
 
-    bool isValid() const { return (_socket >= 0); }
-    bool isReadReady(int millisec) const noexcept;
-    bool isWriteReady(int millisec) const noexcept;
+    [[nodiscard]] bool isValid() const { return (_socket >= 0); }
+    [[nodiscard]] bool isReadReady(int millisec) const noexcept;
+    [[nodiscard]] bool isWriteReady(int millisec) const noexcept;
 
-    std::tuple<SocketError, size_t> readData(char* buf, size_t size, uint32_t msgFlags = MsgFlags::WaitAll | MsgFlags::NoSignal) noexcept;
-    std::tuple<SocketError, size_t> writeData(char* buf, size_t size, uint32_t msgFlags = MSG_NOSIGNAL) noexcept;
+    std::tuple<SocketError, size_t> readData(char* buf, size_t size, FlagUnion msgFlags = FlagUnion{MsgFlags::WaitAll, MsgFlags::NoSignal}) noexcept;
+    std::tuple<SocketError, size_t> writeData(char* buf, size_t size, FlagUnion msgFlags = FlagUnion{MsgFlags::NoSignal}) noexcept;
 
-    const IpEndpoint& ipEndpoint() const {return _ipEndpoint;}
-    int nativeSocketDescriptor() const { return _socket; }
+    [[nodiscard]] const IpEndpoint& ipEndpoint() const { return _ipEndpoint; }
+    [[nodiscard]] int nativeSocketDescriptor() const  { return _socket; }
 
-private:
-    PosixSocket(const PosixSocket&) = delete;
-    PosixSocket& operator=(const PosixSocket&) = delete;
 
-    static int createSocket(SocketType type) noexcept;
 
 private:
     IpEndpoint _ipEndpoint;

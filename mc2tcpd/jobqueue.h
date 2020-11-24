@@ -7,10 +7,16 @@
 class JobQueue
 {
 public:
+    void postJob(std::function<void()>&& fn)
+    {
+        const std::lock_guard<std::mutex> lock(_mutex);
+        _jobs.emplace_back(std::move(fn));
+    }
+
     void postJob(const std::function<void()>& fn)
     {
         const std::lock_guard<std::mutex> lock(_mutex);
-        _jobs.push_back(fn);
+        _jobs.emplace_back(fn);
     }
 
     bool dispatchJob()

@@ -8,15 +8,16 @@ template <class T>
 class PoolAllocator
 {
 public:
-    PoolAllocator (std::shared_ptr<ObjectPool<T>> pool): _pool(pool){}
+    using value_type = T;
+    explicit PoolAllocator (std::shared_ptr<ObjectPool<T>> pool): _pool(pool){}
 
     T* allocate(size_t n) {
         if (n != 1) {
-            throw std::bad_alloc;
+            throw std::bad_alloc();
         }
         T* ptr = _pool->get();
         if (ptr == nullptr) {
-            throw std::bad_alloc;
+            throw std::bad_alloc();
         }
         return ptr;
     }

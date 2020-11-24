@@ -6,100 +6,81 @@
 #include <sys/select.h>
 
 #include <cstring>
-namespace Networking
-{
-namespace PosixImplementation
+namespace Networking::PosixImplementation
 {
 
-PosixSocket::PosixSocket(int existing, IpEndpoint&& ipEndpoint)
+PosixSocket::PosixSocket(int existing, const IpEndpoint& ipEndpoint) noexcept
 : _socket(existing)
 , _ipEndpoint(ipEndpoint)
 {}
 
-PosixSocket::PosixSocket(SocketType type)
-: _socket(createSocket(type))
-{}
-
 PosixSocket::PosixSocket(PosixSocket&& other) noexcept
-: _socket(other._socket)
-, _ipEndpoint(std::move(other._ipEndpoint));
+: _socket(std::exchange(other._socket, -1))
+, _ipEndpoint(std::exchange(other._ipEndpoint, IpEndpoint()))
 {}
 
-int PosixSocket::createSocket(SocketType type)
-{
-    switch(type)
-    {
-        case SocketType::TCP_SOCKET:
-            _socket = ::socket(AF_INET, SOCK_STREAM, 0);
-        break;
-        case SocketType::UDP_SOCKET:
-            _socket = ::socket(AF_INET, SOCK_DGRAM, 0);
-        break;
-    }
-}
-
-bool bindIpV4(IpAddress::IpV4 ip, uint16_t port)
+bool bindIpV4(IpAddress::IpV4 ip, uint16_t port, int socket)
 {
     sockaddr_in server;
-    size_t length = sizeof(server);
+    const size_t length = sizeof(server);
     memset(&server, 0, length);
 
     server.sin_family = AF_INET;
-    if (ip == IpAddress::IpV4::ANY) {
+    if (ip == IpAddress::ANYv4) {
         server.sin_addr.s_addr = INADDR_ANY;
     }
     else {
-        server.sin_addr.s_addr = htonl(ip);
+        server.sin_addr.s_addr = htonl(ip.value);
     }
     server.sin_port = htons(port);
-    return ::bind(_socket, (sockaddr * ) & server, length) >= 0;
+
+    return bind(socket, (sockaddr*) &server, length) >= 0;
 }
 
-bool bindIpV6(const IpAddress::IpV6& ip, uint16_t port)
+bool bindIpV6(const IpAddress::IpV6& ip, uint16_t port, int socket)
 {
     sockaddr_in6 server;
     size_t length = sizeof(server);
     memset(&server, 0, length);
 
     server.sin6_family = AF_INET;
-    if (ip == IpAddress::IpV6::ANY) {
-        server.sin6_addr.s6_addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    if (ip == IpAddress::ANYv6) {
+        memset(server.sin6_addr.s6_addr,0,sizeof(server.sin6_addr.s6_addr));
     }
     else {
-        const IpAddress::Ipv6 &ip6 = ipAddress.ipv6();
-        server.sin6_addr.s6_addr32[0] = htonl(ip6.value4);
-        server.sin6_addr.s6_addr32[1] = htonl(ip6.value3);
-        server.sin6_addr.s6_addr32[2] = htonl(ip6.value2);
-        server.sin6_addr.s6_addr32[3] = htonl(ip6.value1);
+        server.sin6_addr.s6_addr32[0] = htonl(ip.value4);
+        server.sin6_addr.s6_addr32[1] = htonl(ip.value3);
+        server.sin6_addr.s6_addr32[2] = htonl(ip.value2);
+        server.sin6_addr.s6_addr32[3] = htonl(ip.value1);
     }
     server.sin6_port = htons(port);
 
-    return ::bind(_socket, (sockaddr * ) & server, length) >= 0;
+    return ::bind(socket, (sockaddr*) &server, length) >= 0;
 }
 
-SocketError PosixSocket::bind(const IpEndpoint& ipEndpoint)
+SocketError PosixSocket::bind(const IpEndpoint& ipEndpoint) noexcept
 {
     const IpAddress::Family family = ipEndpoint.ipAddress().family();
     if(_socket < 0 || family == IpAddress::Family::UNKNOWN || !ipEndpoint.port().has_value()) {
-        return false;
+        return SocketError::ERROR;
     }
 
     const IpAddress& address = ipEndpoint.ipAddress();
     bool res = false;
     if (family == IpAddress::Family::IPV4) {
-        res = bindIpV4(address.ipv4(), ipEndpoint.port().value());
+        res = bindIpV4(address.ipv4(), ipEndpoint.port().value(), _socket);
     } else
     if (family == IpAddress::Family::IPV6) {
-        res = bindIpV6(address.ipv6(), ipEndpoint.port().value());
+        res = bindIpV6(address.ipv6(), ipEndpoint.port().value(), _socket);
     }
 
-    if (res) {
+    if(res) {
         _ipEndpoint = ipEndpoint;
     }
     return res ? SocketError::SUCCESS : SocketError::ERROR;
 }
 
-void PosixSocket::close()
+void PosixSocket::close() noexcept
 {
     if(_socket < 0) {
         return;
@@ -109,29 +90,31 @@ void PosixSocket::close()
     _socket = -1;
 }
 
-SocketError PosixSocket::setRecieveTimeOut(int millisecs)
+SocketError PosixSocket::setReceiveTimeOut(std::chrono::milliseconds milliseconds) noexcept
 {
     timeval to;
-    to.tv_sec = millisecs / 1000;
-    to.tv_usec = (millisecs % 1000) * 1000;
+    std::chrono::seconds secs = std::chrono::floor<std::chrono::seconds>(milliseconds);
+    to.tv_sec = secs.count();
+    to.tv_usec = (milliseconds.count() - secs.count()*1000) * 1000;
 
     return ::setsockopt(_socket, SOL_SOCKET, SO_RCVTIMEO, &to, sizeof(timeval)) >= 0
            ? SocketError::SUCCESS
            : SocketError::ERROR;
 }
 
-SocketError PosixSocket::setTransmitTimeOut(int millisecs)
+SocketError PosixSocket::setTransmitTimeOut(std::chrono::milliseconds milliseconds) noexcept
 {
     timeval to;
-    to.tv_sec = millisecs / 1000;
-    to.tv_usec =(millisecs % 1000) * 1000;
+    std::chrono::seconds secs = std::chrono::floor<std::chrono::seconds>(milliseconds);
+    to.tv_sec = secs.count();
+    to.tv_usec = (milliseconds.count() - secs.count()*1000) * 1000;
     return ::setsockopt(_socket, SOL_SOCKET, SO_SNDTIMEO, &to, sizeof(timeval)) >= 0
            ? SocketError::SUCCESS
            : SocketError::ERROR;
 
 }
 
-SocketError PosixSocket::setReuse(bool reuse)
+SocketError PosixSocket::setReuse(bool reuse) noexcept
 {
     const int on = ((reuse) ? 1 : 0);
     return ::setsockopt(_socket, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) >= 0
@@ -140,7 +123,7 @@ SocketError PosixSocket::setReuse(bool reuse)
 
 }
 
-SocketError PosixSocket::setBlocking(bool block)
+SocketError PosixSocket::setBlocking(bool block) noexcept
 {
     int x = fcntl(_socket, F_GETFL, 0);
     if(block) {
@@ -155,7 +138,7 @@ SocketError PosixSocket::setBlocking(bool block)
 
 }
 
-SocketError PosixSocket::setRecieveMinSize(size_t size)
+SocketError PosixSocket::setReceiveMinSize(size_t size) noexcept
 {
     return ::setsockopt(_socket, SOL_SOCKET, SO_RCVLOWAT, (char*)&size, sizeof(size)) >= 0
            ? SocketError::SUCCESS
@@ -163,7 +146,7 @@ SocketError PosixSocket::setRecieveMinSize(size_t size)
 
 }
 
-bool PosixSocket::isReadReady(int millisec) const
+bool PosixSocket::isReadReady(int millisec) const noexcept
 {
     fd_set rfds;
     FD_ZERO(&rfds);
@@ -181,7 +164,7 @@ bool PosixSocket::isReadReady(int millisec) const
     return false;
 }
 
-bool PosixSocket::isWriteReady(int millisec) const
+bool PosixSocket::isWriteReady(int millisec) const noexcept
 {
     fd_set wfds;
     FD_ZERO(&wfds);
@@ -198,9 +181,9 @@ bool PosixSocket::isWriteReady(int millisec) const
     return false;
 }
 
-std::tuple<SocketError, size_t> PosixSocket::readData(char* buf, size_t ize, uint32_t flags)
+std::tuple<SocketError, size_t> PosixSocket::readData(char* buf, size_t size, FlagUnion flags) noexcept
 {
-    int res = ::recv(_socket, buf, size, flags);
+    int res = ::recv(_socket, buf, size, flags.value());
     if (res >= 0) {
         return std::make_tuple(SocketError::SUCCESS, res);
     } else {
@@ -212,9 +195,9 @@ std::tuple<SocketError, size_t> PosixSocket::readData(char* buf, size_t ize, uin
 
 }
 
-std::tuple<SocketError, size_t> PosixSocket::writeData(char* buf, size_t size, uint32_t flags)
+std::tuple<SocketError, size_t> PosixSocket::writeData(char* buf, size_t size, FlagUnion flags) noexcept
 {
-    int res = ::send(_socket, buf, size, flags);
+    int res = ::send(_socket, buf, size, flags.value());
     if (res>=0) {
         return std::make_tuple(SocketError::SUCCESS, res);
     } else {
@@ -222,7 +205,7 @@ std::tuple<SocketError, size_t> PosixSocket::writeData(char* buf, size_t size, u
     }
 }
 
-SocketError PosixSocket::setSndBufSize(size_t size)
+SocketError PosixSocket::setSndBufSize(size_t size) noexcept
 {
     return setsockopt(_socket, SOL_SOCKET, SO_SNDBUF, (char*)&size, sizeof(size)) >= 0
            ? SocketError::SUCCESS
@@ -230,21 +213,19 @@ SocketError PosixSocket::setSndBufSize(size_t size)
 
 }
 
-SocketError PosixSocket::setRcvBufSize(size_t size)
+SocketError PosixSocket::setRcvBufSize(size_t size) noexcept
 {
     return setsockopt(_socket, SOL_SOCKET, SO_RCVBUF, (char*)&size, sizeof(size)) >= 0
            ? SocketError::SUCCESS
            : SocketError::ERROR;
 }
 
-SocketError PosixSocket::setNoCheck(int checkSum)
+SocketError PosixSocket::setNoCheck(int checkSum) noexcept
 {
     return setsockopt(_socket, SOL_SOCKET, SO_NO_CHECK, (char*)&checkSum, sizeof(checkSum)) >= 0
            ? SocketError::SUCCESS
            : SocketError::ERROR;
-
 }
 
 }
-}
-}
+

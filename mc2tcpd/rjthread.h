@@ -7,7 +7,7 @@
 
 class RjThread {
 public:
-    RjThread(std::function<void()> runFn)
+    explicit RjThread(std::function<void()> runFn)
     : _runFn(std::move(runFn))
     , _exec(true)
     , _thread([this](){this->run();})
@@ -32,7 +32,6 @@ private:
     std::function<void()> _runFn;
     std::atomic_bool _exec;
     std::thread _thread;
-}
-
+};
 
 #endif //MC2TCPD_RJTHREAD_H

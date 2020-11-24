@@ -7,21 +7,27 @@
 #include <unistd.h>
 
 namespace McTunnel{
+using namespace std::chrono_literals;
 
-TcpMCOutput::TcpMCOutput(std::shared_ptr<Configuration> conf,const ConnectionLostClb& clclb)
+TcpMCOutput::TcpMCOutput(std::shared_ptr<Configuration> conf) noexcept
 : _conf(conf)
 , _dataStreamToSocket()
 , _jobQueue()
-, _connectionLostCb(clclb)
+, _connectionLostCb()
 , _dataThread([this](){this->run();})
 {}
+
+void TcpMCOutput::setConnectionLostClb(const ConnectionLostClb &clclb)
+{
+    _connectionLostCb = clclb;
+}
 
 bool TcpMCOutput::addChannelForGroup(const std::shared_ptr <UDPRecv::DataStream>& ds, const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>& group)
 {
     auto sockPtr = std::make_unique<Networking::TcpSocket>();
 
-    if (sockPtr->setTransmitTimeOut(2000) == Networking::SocketError::ERROR
-        || sockPtr->setRecieveTimeOut(2000)  == Networking::SocketError::ERROR
+    if (sockPtr->setTransmitTimeOut(2000ms) == Networking::SocketError::ERROR
+        || sockPtr->setReceiveTimeOut(2000ms)  == Networking::SocketError::ERROR
         || sockPtr->setSndBufSize(6 * 1024 * 1024) == Networking::SocketError::ERROR
         || sockPtr->setRcvBufSize(6 * 1024 * 1024) == Networking::SocketError::ERROR) {
         return false;
@@ -30,14 +36,16 @@ bool TcpMCOutput::addChannelForGroup(const std::shared_ptr <UDPRecv::DataStream>
     if (sockPtr->connect(group.second) == Networking::SocketError::ERROR) {
         return false;
     }
-    auto ptr = std::make_unique<DataChannel>({ds,sockPtr,UDPRecv::DataStream::ChunkPtr(), group.first});
-    _jobQueue.postJob([ptr=ptr,this](){ this->createTcpSocketFor(ptr)});
+    auto ptr = std::make_shared<DataChannel>(DataChannel{ds,std::move(sockPtr),UDPRecv::DataStream::ChunkPtr(), group.first});
+    _jobQueue.postJob(std::move([ptrl=std::move(ptr),this]() mutable {
+        this->createTcpSocketFor(std::move(ptrl));
+    }));
     return true;
 }
 
-void TcpMCOutput::createTcpSocketFor(std::unique_ptr<DataChannel> dch)
+void TcpMCOutput::createTcpSocketFor(std::shared_ptr<DataChannel> dch)
 {
-    _dataStreamToSocket.emplace_back(dch);
+    _dataStreamToSocket.emplace_back(std::move(dch));
 }
 
 void TcpMCOutput::run()
@@ -54,18 +62,20 @@ void TcpMCOutput::run()
             dryRun = false;
             size_t written;
             Networking::SocketError err;
-            std::tie(err,written) = dch->socket->writeData(dch->chunkInUse->buf + dch->chunkInUse->readPos,
+            std::tie(err,written) = dch->socket->writeData(dch->chunkInUse->buf.data() + dch->chunkInUse->readPos,
                                                            dch->chunkInUse->size - dch->chunkInUse->readPos);
             if (err == Networking::SocketError::SUCCESS){
                 dch->chunkInUse->readPos += written;
             } else {
-                dch->stream->revertChunk(dch->chunkInUse);
+                dch->stream->revertChunk(std::move(dch->chunkInUse));
                 Networking::IpEndpoint gr = dch->mcGroup;
                 Networking::IpEndpoint ip = dch->socket->connectedEndpoint();
                 auto ds = dch->stream;
                 dch = nullptr;
                 needCleanup = true;
-                _connectionLostCb(ds, std::make_pair(gr, ip));
+                if (_connectionLostCb) {
+                    _connectionLostCb(ds, std::make_pair(gr, ip));
+                }
             }
         }
     }
