@@ -4,6 +4,7 @@ project(mc2tcpd)
 set(CMAKE_CXX_STANDARD 17)
 
 include_directories(.)
+link_libraries(pthread)
 
 add_executable(mc2tcpd
         chunckedstream.h
@@ -11,6 +12,7 @@ add_executable(mc2tcpd
         commandlineparameters.h
         configuration.h
         ipaddress.h
+        ipaddress.cpp
         jobqueue.h
         main.cpp
         objectpool.h
@@ -23,6 +25,7 @@ add_executable(mc2tcpd
         tcpmcoutput.h
         tcpsocket.h
         udppacket.h
+        udppacket.cpp
         udprecv.cpp
         udprecv.h
         udprecvpool.cpp
