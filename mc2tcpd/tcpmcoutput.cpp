@@ -9,9 +9,8 @@
 namespace McTunnel{
 using namespace std::chrono_literals;
 
-TcpMCOutput::TcpMCOutput(std::shared_ptr<Configuration> conf) noexcept
-: _conf(conf)
-, _dataStreamToSocket()
+TcpMCOutput::TcpMCOutput() noexcept
+: _dataStreamToSocket()
 , _jobQueue()
 , _connectionLostCb()
 , _dataThread([this](){this->run();})
@@ -36,14 +35,14 @@ bool TcpMCOutput::addChannelForGroup(const std::shared_ptr <UDPRecv::DataStream>
     if (sockPtr->connect(group.second) == Networking::SocketError::ERROR) {
         return false;
     }
-    auto ptr = std::make_shared<DataChannel>(DataChannel{ds,std::move(sockPtr),UDPRecv::DataStream::ChunkPtr(), group.first});
-    _jobQueue.postJob(std::move([ptrl=std::move(ptr),this]() mutable {
-        this->createTcpSocketFor(std::move(ptrl));
+    auto dch = std::make_unique<DataChannel>(DataChannel{ds,std::move(sockPtr),UDPRecv::DataStream::ChunkPtr(), group.first});
+    _jobQueue.postJob(std::move([dch(std::move(dch)),this]() mutable {
+        this->createTcpSocketFor(std::move(dch));
     }));
     return true;
 }
 
-void TcpMCOutput::createTcpSocketFor(std::shared_ptr<DataChannel> dch)
+void TcpMCOutput::createTcpSocketFor(std::unique_ptr<DataChannel>&& dch)
 {
     _dataStreamToSocket.emplace_back(std::move(dch));
 }

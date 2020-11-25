@@ -30,8 +30,7 @@ public:
     std::shared_ptr<DataStream> addMulticast(const Networking::IpEndpoint& endpoint) noexcept;
 
 private:
-    void addToSockets(std::shared_ptr<SocketStreamBundle> bndl);
-    void dispatchJob();
+    void addToSockets(SocketStreamBundle&& bndl);
     void run();
 
 //    ZLogger* log_;

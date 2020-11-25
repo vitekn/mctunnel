@@ -6,38 +6,48 @@
 
 class JobQueue
 {
-public:
-    void postJob(std::function<void()>&& fn)
-    {
-        const std::lock_guard<std::mutex> lock(_mutex);
-        _jobs.emplace_back(std::move(fn));
-    }
+struct JobFuncErasure
+{
+    virtual void operator()() = 0;
+    virtual ~JobFuncErasure() = default;
+};
+template <class F>
+struct JobFunc : JobFuncErasure
+{
+    JobFunc(F&& f): _f(std::forward<F>(f)) {}
+    void operator()() override { _f();}
+    F _f;
+};
 
-    void postJob(const std::function<void()>& fn)
+public:
+
+    template<class F>
+    void postJob(F&& f)
     {
         const std::lock_guard<std::mutex> lock(_mutex);
-        _jobs.emplace_back(fn);
+        std::unique_ptr<JobFuncErasure> fn = std::make_unique<JobFunc<F>>(std::forward<F>(f));
+        _jobs.emplace_back(std::move(fn));
     }
 
     bool dispatchJob()
     {
-        std::function<void()> fn;
+        std::unique_ptr<JobFuncErasure> fn;
         {
             const std::lock_guard <std::mutex> lock(_mutex); //queue
             if (!_jobs.empty()) {
-                fn = _jobs.front();
+                fn = std::move(_jobs.front());
                 _jobs.pop_front();
             }
         }
         if (fn) {
-            fn();
+            (*fn.get())();
             return true;
         }
         return false;
     }
 
 private:
-    std::deque<std::function<void()>> _jobs;
+    std::deque<std::unique_ptr<JobFuncErasure>> _jobs;
     std::mutex _mutex;
 };
 

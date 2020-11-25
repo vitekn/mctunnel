@@ -3,6 +3,8 @@
 
 #include <string>
 #include <vector>
+#include <optional>
+#include <algorithm>
 
 class CommandLineParameters
 {

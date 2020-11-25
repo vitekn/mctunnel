@@ -16,9 +16,9 @@ UDPRecv::UDPRecv(std::shared_ptr<ObjectPool<ChunkType>> pool) noexcept
 {
 }
 
-void UDPRecv::addToSockets(std::shared_ptr<SocketStreamBundle> bndl)
+void UDPRecv::addToSockets(SocketStreamBundle&& bndl)
 {
-    _sockets.emplace_back(std::move(*bndl));
+    _sockets.emplace_back(std::move(bndl));
     _socketCount.store(_sockets.size());
 
 }
@@ -26,8 +26,8 @@ void UDPRecv::addToSockets(std::shared_ptr<SocketStreamBundle> bndl)
 std::shared_ptr<UDPRecv::DataStream> UDPRecv::addMulticast(const Networking::IpEndpoint& endpoint) noexcept
 {
     try {
-        auto bndl = std::make_shared<SocketStreamBundle>(std::make_pair(std::make_unique<Networking::UdpSocket>(), std::make_shared<DataStream>(PoolAllocator<ChunkType>(_pool))));
-        Networking::UdpSocket& ns = *(bndl->first.get());
+        auto bndl = std::make_pair(std::make_unique<Networking::UdpSocket>(), std::make_shared<DataStream>(PoolAllocator<ChunkType>(_pool)));
+        Networking::UdpSocket& ns = *(bndl.first.get());
         if (ns.setReuse(true) == Networking::SocketError::ERROR
             || ns.setBlocking(false) == Networking::SocketError::ERROR
             || ns.setReceiveTimeOut(100ms) == Networking::SocketError::ERROR) {
@@ -44,13 +44,13 @@ std::shared_ptr<UDPRecv::DataStream> UDPRecv::addMulticast(const Networking::IpE
             return std::shared_ptr<DataStream>();
         }
 
-        auto res = bndl->second;
-        _jobQueue.postJob(std::move([bndl=bndl, this]() mutable {
-            this->addToSockets(bndl);
+        auto res = bndl.second;
+        _jobQueue.postJob(std::move([bndl(std::move(bndl)), this]() mutable {
+            this->addToSockets(std::move(bndl));
         }));
         //log_ -> log(ZLOG_DEBUG, 5, "    finished %p, [%s]\n", ns, strerror(errno));
         return res;
-    } catch (std::bad_alloc&) {
+    } catch (const std::bad_alloc&) {
         return std::shared_ptr<DataStream>();
     }
 }

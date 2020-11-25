@@ -1,15 +1,12 @@
-#include <signal.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <pthread.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include <iostream>
-#include "udprecvpool.h"
-#include "tcpmcoutput.h"
 #include "commandlineparameters.h"
-#include <fstream>
+#include "tcpmcoutput.h"
 #include "udprecv.h"
+#include "udprecvpool.h"
+
+#include <csignal>
+#include <iostream>
+#include <fstream>
+
 std::atomic_bool running = true;
 namespace
 {
@@ -18,6 +15,7 @@ void signal_handler(int sig)
     running = false;
 }
 }
+
 using namespace std::chrono_literals;
 
 int main(int argc, char** argv)
@@ -43,7 +41,7 @@ int main(int argc, char** argv)
 
     McTunnel::UDPRecvPool receivers(configuration);
     std::shared_ptr<McTunnel::TcpMCOutput> output
-        = std::make_shared<McTunnel::TcpMCOutput>(configuration);
+        = std::make_shared<McTunnel::TcpMCOutput>();
     output->setConnectionLostClb(
                 [output, reconnectionJobs](const std::shared_ptr<McTunnel::UDPRecv::DataStream>& ds,
                                            const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>& group) mutable

@@ -29,7 +29,7 @@ class TcpMCOutput
 
 public:
     using ConnectionLostClb = std::function<void(const std::shared_ptr<UDPRecv::DataStream>&, const std::pair<Networking::IpEndpoint, Networking::IpEndpoint>&)>;
-    explicit TcpMCOutput(std::shared_ptr<Configuration> conf) noexcept;
+    TcpMCOutput() noexcept;
 
     void setConnectionLostClb(const ConnectionLostClb& clclb);
 
@@ -38,14 +38,10 @@ public:
 private:
     void run();
 
-    void createTcpSocketFor(std::shared_ptr<DataChannel> dch);
-
-    bool connect2Interface(u_int32_t);
-    void deleteTcpSockets();
+    void createTcpSocketFor(std::unique_ptr<DataChannel>&& dch);
 
 private:
-    std::shared_ptr<Configuration> _conf;
-    std::vector<std::shared_ptr<DataChannel>> _dataStreamToSocket;
+    std::vector<std::unique_ptr<DataChannel>> _dataStreamToSocket;
     JobQueue _jobQueue;
     ConnectionLostClb _connectionLostCb;
     RjThread _dataThread;
